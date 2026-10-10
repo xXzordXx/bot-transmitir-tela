@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transmissão de Tela</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>📺 Transmissão de Tela</h1>
+      <div id="status" class="status">Conectando...</div>
+    </header>
+
+    <main>
+      <div id="stage">
+        <video id="video" autoplay playsinline></video>
+        <div id="placeholder" class="placeholder">Aguardando transmissão...</div>
+      </div>
+
+      <div class="controls">
+        <button id="shareBtn">📡 Compartilhar minha tela</button>
+        <button id="stopBtn" hidden>⏹️ Parar transmissão</button>
+        <button id="fullBtn">⛶ Tela cheia</button>
+        <span id="viewers" class="viewers"></span>
+      </div>
+
+      <p class="hint">
+        Compartilhe esta mesma URL com quem vai assistir. Quem clicar em
+        "Compartilhar minha tela" vira o transmissor; os demais assistem.
+      </p>
+    </main>
+
+    <script src="/sala.js"></script>
+  </body>
+</html>

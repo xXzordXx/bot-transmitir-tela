@@ -1,0 +1,19 @@
+{
+  "name": "bot-transmitir-tela",
+  "version": "3.0.0",
+  "description": "Bot do Discord que cria uma sala web de transmissão de tela (WebRTC) e envia o link no chat",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

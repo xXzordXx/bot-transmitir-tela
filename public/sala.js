@@ -7,6 +7,7 @@ const statusEl = document.getElementById("status");
 const video = document.getElementById("video");
 const placeholder = document.getElementById("placeholder");
 const shareBtn = document.getElementById("shareBtn");
+const camBtn = document.getElementById("camBtn");
 const stopBtn = document.getElementById("stopBtn");
 const fullBtn = document.getElementById("fullBtn");
 const viewersEl = document.getElementById("viewers");
@@ -176,26 +177,44 @@ function connect() {
   };
 }
 
-async function startBroadcast() {
+async function startScreen() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
     setStatus("Seu navegador não suporta captura de tela (ou o site não está em HTTPS).");
     return;
   }
+  let stream;
   try {
-    localStream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30 },
-      audio: true,
-    });
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
   } catch {
     setStatus("Captura de tela cancelada.");
     return;
   }
+  beginBroadcast(stream);
+}
 
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus("Seu navegador não suporta câmera (ou o site não está em HTTPS).");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch {
+    setStatus("Acesso à câmera negado.");
+    return;
+  }
+  beginBroadcast(stream);
+}
+
+function beginBroadcast(stream) {
+  localStream = stream;
   isBroadcaster = true;
   video.srcObject = localStream;
   video.muted = true; // evita eco da própria captura
   placeholder.hidden = true;
   shareBtn.hidden = true;
+  camBtn.hidden = true;
   stopBtn.hidden = false;
   viewerCount = 0;
   updateViewers(0);
@@ -218,12 +237,14 @@ function stopBroadcast() {
   placeholder.hidden = false;
   placeholder.textContent = "Aguardando transmissão...";
   shareBtn.hidden = false;
+  camBtn.hidden = false;
   stopBtn.hidden = true;
   viewersEl.textContent = "";
   setStatus("Transmissão parada.");
 }
 
-shareBtn.onclick = startBroadcast;
+shareBtn.onclick = startScreen;
+camBtn.onclick = startCamera;
 stopBtn.onclick = stopBroadcast;
 fullBtn.onclick = () => {
   if (video.requestFullscreen) video.requestFullscreen();

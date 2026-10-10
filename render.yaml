@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: bot-transmitir-tela
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: PUBLIC_URL
+        sync: false

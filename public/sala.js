@@ -16,6 +16,8 @@ const camBtn = $("camBtn");
 const videoSrcBtn = $("videoSrcBtn");
 const micBtn = $("micBtn");
 const deafenBtn = $("deafenBtn");
+const volSlider = $("volSlider");
+const volLabel = $("volLabel");
 const hideBtn = $("hideBtn");
 const fullBtn = $("fullBtn");
 const stopBtn = $("stopBtn");
@@ -43,7 +45,10 @@ let myName = localStorage.getItem("tt_name") || "";
 let isBroadcaster = false;
 let localStream = null;
 let hidden = false;
-let deaf = false;
+const storedVol = localStorage.getItem("tt_vol");
+let currentVol = storedVol === null ? 100 : Number(storedVol);
+if (!Number.isFinite(currentVol)) currentVol = 100;
+let lastVol = currentVol > 0 ? currentVol : 100;
 const pcs = new Map(); // peerId -> RTCPeerConnection
 
 roomNameEl.textContent = roomId || "sala";
@@ -65,7 +70,7 @@ function newPeer(peerId) {
   if (!isBroadcaster) {
     pc.ontrack = (e) => {
       video.srcObject = e.streams[0];
-      video.muted = deaf;
+      applyVolumeToVideo();
       idle.hidden = true;
     };
   }
@@ -311,12 +316,38 @@ micBtn.onclick = () => {
   updateMicBtn();
 };
 
+function applyVolumeToVideo() {
+  if (isBroadcaster) { video.muted = true; return; } // não ouvir a própria transmissão
+  video.muted = currentVol === 0;
+  video.volume = Math.min(1, currentVol / 100);
+}
+
+function updateVolUI() {
+  if (volSlider) volSlider.value = String(currentVol);
+  if (volLabel) volLabel.textContent = currentVol + "%";
+  deafenBtn.textContent = currentVol === 0 ? "🔇" : currentVol < 50 ? "🔉" : "🔊";
+  deafenBtn.classList.toggle("off", currentVol === 0);
+  deafenBtn.title = `Volume: ${currentVol}%`;
+}
+
+function setVolume(v, save = true) {
+  currentVol = Math.max(0, Math.min(100, Math.round(v)));
+  if (currentVol > 0) lastVol = currentVol;
+  applyVolumeToVideo();
+  updateVolUI();
+  if (save) { try { localStorage.setItem("tt_vol", String(currentVol)); } catch {} }
+}
+
+// Arrastar o slider = mexer no volume ao vivo.
+volSlider.oninput = () => setVolume(Number(volSlider.value));
+
+// Clicar no ícone = mutar / voltar ao volume anterior.
 deafenBtn.onclick = () => {
-  deaf = !deaf;
-  if (!isBroadcaster) video.muted = deaf;
-  deafenBtn.textContent = deaf ? "🔇" : "🔊";
-  deafenBtn.classList.toggle("off", deaf);
+  if (currentVol > 0) setVolume(0);
+  else setVolume(lastVol || 100);
 };
+
+updateVolUI();
 
 hideBtn.onclick = () => {
   hidden = !hidden;

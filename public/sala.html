@@ -44,7 +44,13 @@
 
           <div id="controlbar" class="controlbar">
             <button id="micBtn" class="cbtn" title="Áudio da transmissão" hidden>🎙️</button>
-            <button id="deafenBtn" class="cbtn" title="Som (o que você ouve)">🔊</button>
+            <div class="cbtn-vol" id="volWrap">
+              <button id="deafenBtn" class="cbtn" title="Volume (o que você ouve)">🔊</button>
+              <div class="vol-popup">
+                <input id="volSlider" type="range" min="0" max="100" value="100" aria-label="Volume" />
+                <span id="volLabel" class="vol-label">100%</span>
+              </div>
+            </div>
             <button id="hideBtn" class="cbtn" title="Ocultar vídeo">👁️</button>
             <button id="fullBtn" class="cbtn" title="Tela cheia">⛶</button>
             <button id="stopBtn" class="cbtn danger" title="Parar transmissão" hidden>⏹️</button>

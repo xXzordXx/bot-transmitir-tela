@@ -129,6 +129,29 @@ body {
 .cbtn.danger { background: #3a2030; }
 .cbtn.danger:hover { background: var(--danger); }
 
+/* volume */
+.cbtn-vol { position: relative; display: flex; }
+.vol-popup {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  background: rgba(12, 15, 22, 0.95); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; display: none; flex-direction: column; align-items: center; gap: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.cbtn-vol:hover .vol-popup,
+.cbtn-vol:focus-within .vol-popup { display: flex; }
+.vol-label { font-size: 12px; color: var(--muted); font-weight: 700; min-width: 34px; text-align: center; }
+#volSlider {
+  -webkit-appearance: none; appearance: none; width: 140px; height: 6px; border-radius: 4px;
+  background: var(--panel2); outline: none; cursor: pointer;
+}
+#volSlider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); cursor: pointer; border: 2px solid #fff;
+}
+#volSlider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
+}
+
 /* ---------- Panel ---------- */
 .panel {
   width: 320px; flex-shrink: 0;

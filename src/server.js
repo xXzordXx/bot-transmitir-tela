@@ -48,6 +48,25 @@ export function startServer() {
   const app = express();
   app.use(express.static(publicDir));
   app.get("/", (_req, res) => res.sendFile(path.join(publicDir, "home.html")));
+  app.get("/healthz", (_req, res) => res.send("ok"));
+
+  // Configuração de ICE (STUN + TURN). O TURN vem de variáveis de ambiente,
+  // então dá pra ativá-lo sem mexer no código:
+  //   TURN_URLS=turn:host:3478,turns:host:5349   TURN_USERNAME=...   TURN_CREDENTIAL=...
+  app.get("/ice", (_req, res) => {
+    const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+    if (process.env.TURN_URLS) {
+      const urls = process.env.TURN_URLS.split(",").map((s) => s.trim()).filter(Boolean);
+      if (urls.length) {
+        iceServers.push({
+          urls,
+          username: process.env.TURN_USERNAME ?? "",
+          credential: process.env.TURN_CREDENTIAL ?? "",
+        });
+      }
+    }
+    res.json({ iceServers });
+  });
   app.get("/sala/:id", (_req, res) => res.sendFile(path.join(publicDir, "sala.html")));
 
   const server = createServer(app);
@@ -156,4 +175,13 @@ export function startServer() {
   server.listen(config.port, () => {
     console.log(`🌐 Servidor web rodando em ${config.publicUrl}`);
   });
+
+  // Keep-alive: se-pinga a cada 10 min para o plano grátis não hibernar (24/7).
+  if (/^https?:\/\//.test(config.publicUrl) && !config.publicUrl.includes("localhost")) {
+    const healthUrl = `${config.publicUrl}/healthz`;
+    setInterval(() => {
+      fetch(healthUrl).catch(() => {});
+    }, 10 * 60 * 1000);
+    console.log("⏰ Keep-alive ativado (auto-ping a cada 10 min).");
+  }
 }

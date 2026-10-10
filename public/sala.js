@@ -33,7 +33,19 @@ const partList = $("partList");
 const nameInput = $("nameInput");
 const nameSave = $("nameSave");
 
-const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+// STUN + TURN. O TURN (relay) é essencial para funcionar entre redes diferentes.
+// A configuração vem do servidor (/ice), que lê as credenciais do ambiente.
+let rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+async function loadIce() {
+  try {
+    const r = await fetch("/ice");
+    if (r.ok) {
+      const j = await r.json();
+      if (j && Array.isArray(j.iceServers) && j.iceServers.length) rtcConfig = j;
+    }
+  } catch { /* mantém o padrão (só STUN) */ }
+}
 
 // Qualidade alvo: até 4K com bitrate alto.
 const MAX_VIDEO_BITRATE = 20_000_000; // 20 Mbps
@@ -412,5 +424,8 @@ camBtn.onclick = startCamera;
 videoSrcBtn.onclick = startVideoSource;
 
 // ---------- Start ----------
-if (!roomId) setStatus("Sala inválida.");
-else connect();
+(async () => {
+  if (!roomId) { setStatus("Sala inválida."); return; }
+  await loadIce();
+  connect();
+})();

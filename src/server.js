@@ -1,6 +1,7 @@
 // ------------------------------------------------------------------
-// Servidor web: serve as páginas e faz a sinalização WebRTC (WebSocket).
-// 1 pessoa transmite a tela (broadcaster) -> várias assistem (viewers).
+// Servidor web: serve as páginas e faz a sinalização WebRTC (WebSocket),
+// além de chat ao vivo e lista de participantes da sala.
+// 1 pessoa transmite (broadcaster) -> várias assistem (viewers).
 // ------------------------------------------------------------------
 import express from "express";
 import { createServer } from "node:http";
@@ -18,9 +19,29 @@ function send(ws, obj) {
 }
 
 function broadcast(room, obj, exceptId) {
-  for (const [id, client] of room.clients) {
-    if (id !== exceptId) send(client, obj);
+  for (const [id, c] of room.clients) {
+    if (id !== exceptId) send(c.ws, obj);
   }
+}
+
+function clean(str, max) {
+  return String(str ?? "")
+    .replace(/[<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+function participantsList(room) {
+  const list = [];
+  for (const [id, c] of room.clients) {
+    list.push({ id, name: c.name, broadcasting: id === room.broadcasterId });
+  }
+  return list;
+}
+
+function sendParticipants(room) {
+  broadcast(room, { type: "participants", list: participantsList(room) });
 }
 
 export function startServer() {
@@ -42,15 +63,17 @@ export function startServer() {
 
     const room = getOrCreateRoom(roomId);
     const clientId = Math.random().toString(36).slice(2, 10);
-    room.clients.set(clientId, ws);
+    const guest = `Convidado-${clientId.slice(0, 4)}`;
+    room.clients.set(clientId, { ws, name: guest });
 
-    send(ws, { type: "welcome", id: clientId, broadcasterId: room.broadcasterId });
+    send(ws, { type: "welcome", id: clientId, name: guest, broadcasterId: room.broadcasterId });
 
-    // Se já existe transmissão, avisa o broadcaster que entrou mais um espectador.
     if (room.broadcasterId && room.broadcasterId !== clientId) {
       const b = room.clients.get(room.broadcasterId);
-      if (b) send(b, { type: "viewer-joined", id: clientId });
+      if (b) send(b.ws, { type: "viewer-joined", id: clientId });
     }
+
+    sendParticipants(room);
 
     ws.on("message", (buf) => {
       let msg;
@@ -60,29 +83,54 @@ export function startServer() {
         return;
       }
 
+      const me = room.clients.get(clientId);
+      if (!me) return;
+
       switch (msg.type) {
+        case "hello": {
+          const name = clean(msg.name, 24);
+          if (name) me.name = name;
+          sendParticipants(room);
+          break;
+        }
+
+        case "chat": {
+          const text = clean(msg.text, 500);
+          if (!text) break;
+          broadcast(room, {
+            type: "chat",
+            from: { id: clientId, name: me.name },
+            text,
+            ts: Date.now(),
+          });
+          break;
+        }
+
         case "broadcast-start": {
           room.broadcasterId = clientId;
-          // Avisa todos os espectadores que há transmissão...
           broadcast(room, { type: "broadcaster-available", id: clientId }, clientId);
-          // ...e avisa o broadcaster sobre os espectadores que já estavam na sala.
           for (const [id] of room.clients) {
             if (id !== clientId) send(ws, { type: "viewer-joined", id });
           }
+          sendParticipants(room);
           break;
         }
+
         case "broadcast-stop": {
           if (room.broadcasterId === clientId) {
             room.broadcasterId = null;
             broadcast(room, { type: "broadcaster-gone" }, clientId);
+            sendParticipants(room);
           }
           break;
         }
+
         case "signal": {
           const target = room.clients.get(msg.to);
-          if (target) send(target, { type: "signal", from: clientId, data: msg.data });
+          if (target) send(target.ws, { type: "signal", from: clientId, data: msg.data });
           break;
         }
+
         default:
           break;
       }
@@ -95,9 +143,13 @@ export function startServer() {
         broadcast(room, { type: "broadcaster-gone" }, clientId);
       } else if (room.broadcasterId) {
         const b = room.clients.get(room.broadcasterId);
-        if (b) send(b, { type: "viewer-left", id: clientId });
+        if (b) send(b.ws, { type: "viewer-left", id: clientId });
       }
-      if (room.clients.size === 0) deleteRoom(roomId);
+      if (room.clients.size === 0) {
+        deleteRoom(roomId);
+      } else {
+        sendParticipants(room);
+      }
     });
   });
 

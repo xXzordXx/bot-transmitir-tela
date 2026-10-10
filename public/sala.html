@@ -7,29 +7,78 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header>
-      <h1>📺 Transmissão de Tela</h1>
-      <div id="status" class="status">Conectando...</div>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">📺</span>
+        <div>
+          <div class="brand-name">Transmissão</div>
+          <div class="room-line">
+            <span id="roomName" class="room-name">sala</span>
+            <span id="partCount" class="muted">· 0 participantes</span>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="copyRoomBtn" class="btn btn-ghost">🔗 Compartilhar sala</button>
+        <button id="switchRoomBtn" class="btn btn-ghost">🔁 Trocar de sala</button>
+      </div>
     </header>
 
-    <main>
-      <div id="stage">
-        <video id="video" autoplay playsinline></video>
-        <div id="placeholder" class="placeholder">Aguardando transmissão...</div>
-      </div>
+    <main class="layout">
+      <section class="stage-wrap">
+        <div id="stage" class="stage">
+          <video id="video" autoplay playsinline></video>
 
-      <div class="controls">
-        <button id="shareBtn">🖥️ Compartilhar tela</button>
-        <button id="camBtn">🎥 Compartilhar câmera</button>
-        <button id="stopBtn" hidden>⏹️ Parar transmissão</button>
-        <button id="fullBtn">⛶ Tela cheia</button>
-        <span id="viewers" class="viewers"></span>
-      </div>
+          <div id="idle" class="idle">
+            <div class="idle-icon">🖥️</div>
+            <h2>Ninguém está transmitindo ainda.</h2>
+            <p class="muted">Seja o primeiro a compartilhar algo com a sala!</p>
+            <div class="share-buttons">
+              <button id="shareBtn" class="btn btn-primary">🖥️ Compartilhar tela</button>
+              <button id="camBtn" class="btn btn-primary">🎥 Compartilhar câmera</button>
+            </div>
+            <div class="share-buttons">
+              <button id="videoSrcBtn" class="btn btn-soft">▶️ Adicionar fonte de vídeo <span class="tag">BETA</span></button>
+            </div>
+          </div>
 
-      <p class="hint">
-        Compartilhe esta mesma URL com quem vai assistir. Quem clicar em
-        "Compartilhar minha tela" vira o transmissor; os demais assistem.
-      </p>
+          <div id="controlbar" class="controlbar">
+            <button id="micBtn" class="cbtn" title="Áudio da transmissão" hidden>🎙️</button>
+            <button id="deafenBtn" class="cbtn" title="Som (o que você ouve)">🔊</button>
+            <button id="hideBtn" class="cbtn" title="Ocultar vídeo">👁️</button>
+            <button id="fullBtn" class="cbtn" title="Tela cheia">⛶</button>
+            <button id="stopBtn" class="cbtn danger" title="Parar transmissão" hidden>⏹️</button>
+            <button id="leaveBtn" class="cbtn danger" title="Sair da sala">🚪</button>
+          </div>
+        </div>
+        <div id="status" class="status muted">Conectando...</div>
+      </section>
+
+      <aside class="panel">
+        <div class="tabs">
+          <button class="tab active" data-tab="chat">💬 Chat</button>
+          <button class="tab" data-tab="part">👥 Participantes (<span id="partTab">0</span>)</button>
+        </div>
+
+        <div id="tab-chat" class="tabview">
+          <div id="chatMsgs" class="chat-msgs"></div>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" type="text" maxlength="500" placeholder="Mensagem..." autocomplete="off" />
+            <button type="submit" class="btn btn-primary">Enviar</button>
+          </form>
+        </div>
+
+        <div id="tab-part" class="tabview" hidden>
+          <div class="namebox">
+            <label class="muted">Seu nome</label>
+            <div class="namerow">
+              <input id="nameInput" type="text" maxlength="24" placeholder="Seu nome" />
+              <button id="nameSave" class="btn btn-soft">Salvar</button>
+            </div>
+          </div>
+          <div id="partList" class="part-list"></div>
+        </div>
+      </aside>
     </main>
 
     <script src="/sala.js"></script>

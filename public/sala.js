@@ -1,80 +1,103 @@
-// Cliente da sala: implementa transmissor (broadcaster) e espectador (viewer)
-// usando WebRTC. A sinalização passa pelo WebSocket do servidor.
+// Sala de transmissão: transmissor (broadcaster) e espectadores (viewers)
+// via WebRTC, com chat ao vivo, lista de participantes e barra de controles.
 
 const roomId = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
 
-const statusEl = document.getElementById("status");
-const video = document.getElementById("video");
-const placeholder = document.getElementById("placeholder");
-const shareBtn = document.getElementById("shareBtn");
-const camBtn = document.getElementById("camBtn");
-const stopBtn = document.getElementById("stopBtn");
-const fullBtn = document.getElementById("fullBtn");
-const viewersEl = document.getElementById("viewers");
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+const idle = $("idle");
+const statusEl = $("status");
+const roomNameEl = $("roomName");
+const partCountEl = $("partCount");
+const partTabEl = $("partTab");
 
-const rtcConfig = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
+const shareBtn = $("shareBtn");
+const camBtn = $("camBtn");
+const videoSrcBtn = $("videoSrcBtn");
+const micBtn = $("micBtn");
+const deafenBtn = $("deafenBtn");
+const hideBtn = $("hideBtn");
+const fullBtn = $("fullBtn");
+const stopBtn = $("stopBtn");
+const leaveBtn = $("leaveBtn");
+
+const copyRoomBtn = $("copyRoomBtn");
+const switchRoomBtn = $("switchRoomBtn");
+
+const chatMsgs = $("chatMsgs");
+const chatForm = $("chatForm");
+const chatInput = $("chatInput");
+const partList = $("partList");
+const nameInput = $("nameInput");
+const nameSave = $("nameSave");
+
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+// Qualidade alvo: até 4K com bitrate alto.
+const MAX_VIDEO_BITRATE = 20_000_000; // 20 Mbps
+const VIDEO_4K = { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 60 } };
 
 let ws;
 let myId = null;
+let myName = localStorage.getItem("tt_name") || "";
 let isBroadcaster = false;
 let localStream = null;
-let viewerCount = 0;
+let hidden = false;
+let deaf = false;
 const pcs = new Map(); // peerId -> RTCPeerConnection
 
-function setStatus(t) {
-  statusEl.textContent = t;
-}
+roomNameEl.textContent = roomId || "sala";
+nameInput.value = myName;
 
-function sendWs(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
-}
-
-function signal(to, data) {
-  sendWs({ type: "signal", to, data });
-}
+function setStatus(t) { statusEl.textContent = t; }
+function sendWs(o) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o)); }
+function signal(to, data) { sendWs({ type: "signal", to, data }); }
 
 function closeAllPeers() {
   for (const pc of pcs.values()) pc.close();
   pcs.clear();
 }
 
-function updateViewers(delta) {
-  viewerCount = Math.max(0, viewerCount + delta);
-  viewersEl.textContent = isBroadcaster ? `👁️ ${viewerCount} assistindo` : "";
-}
-
+// ---------- WebRTC ----------
 function newPeer(peerId) {
   const pc = new RTCPeerConnection(rtcConfig);
-
-  pc.onicecandidate = (e) => {
-    if (e.candidate) signal(peerId, { ice: e.candidate });
-  };
-
-  // Só o espectador recebe mídia.
+  pc.onicecandidate = (e) => { if (e.candidate) signal(peerId, { ice: e.candidate }); };
   if (!isBroadcaster) {
     pc.ontrack = (e) => {
       video.srcObject = e.streams[0];
-      video.muted = false;
-      placeholder.hidden = true;
+      video.muted = deaf;
+      idle.hidden = true;
     };
   }
-
   pc.onconnectionstatechange = () => {
     if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
       pc.close();
       pcs.delete(peerId);
     }
   };
-
   pcs.set(peerId, pc);
   return pc;
 }
 
 async function makeOfferTo(viewerId) {
   const pc = newPeer(viewerId);
-  for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+  const videoTrack = localStream.getVideoTracks()[0];
+  const audioTrack = localStream.getAudioTracks()[0];
+  const vsender = videoTrack ? pc.addTrack(videoTrack, localStream) : null;
+  if (audioTrack) pc.addTrack(audioTrack, localStream);
+
+  // Força bitrate alto / mantém resolução (4K).
+  if (vsender) {
+    try {
+      const p = vsender.getParameters();
+      if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings[0].maxBitrate = MAX_VIDEO_BITRATE;
+      p.encodings[0].maxFramerate = 60;
+      p.degradationPreference = "maintain-resolution";
+      await vsender.setParameters(p);
+    } catch { /* alguns navegadores ignoram */ }
+  }
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   signal(viewerId, { sdp: pc.localDescription });
@@ -83,65 +106,54 @@ async function makeOfferTo(viewerId) {
 async function onSignal(from, data) {
   if (data.sdp) {
     if (data.sdp.type === "offer") {
-      // Espectador recebendo oferta do transmissor.
       const pc = pcs.get(from) || newPeer(from);
       await pc.setRemoteDescription(data.sdp);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       signal(from, { sdp: pc.localDescription });
     } else if (data.sdp.type === "answer") {
-      // Transmissor recebendo resposta do espectador.
       const pc = pcs.get(from);
       if (pc) await pc.setRemoteDescription(data.sdp);
     }
   } else if (data.ice) {
     const pc = pcs.get(from);
-    if (pc) {
-      try {
-        await pc.addIceCandidate(data.ice);
-      } catch {
-        /* candidato pode chegar fora de ordem; ignorar */
-      }
-    }
+    if (pc) { try { await pc.addIceCandidate(data.ice); } catch {} }
   }
 }
 
+// ---------- Mensagens do servidor ----------
 function onMessage(msg) {
   switch (msg.type) {
     case "welcome":
       myId = msg.id;
-      if (msg.broadcasterId) {
-        setStatus("Transmissão em andamento.");
-        placeholder.textContent = "Carregando transmissão...";
-      } else {
-        setStatus(`Conectado à sala ${roomId}. Ninguém transmitindo ainda.`);
-      }
+      if (!myName) { myName = msg.name; nameInput.value = myName; }
+      else if (myName !== msg.name) sendWs({ type: "hello", name: myName });
+      setStatus(msg.broadcasterId ? "Transmissão em andamento." : `Conectado à sala ${roomId}.`);
+      break;
+
+    case "participants":
+      renderParticipants(msg.list);
+      break;
+
+    case "chat":
+      addChat(msg.from.name, msg.text, msg.from.id === myId);
       break;
 
     case "broadcaster-available":
-      if (!isBroadcaster) {
-        placeholder.textContent = "Carregando transmissão...";
-        shareBtn.hidden = true;
-        setStatus("Transmissão em andamento.");
-      }
+      if (!isBroadcaster) { idle.hidden = true; setStatus("Transmissão em andamento."); }
       break;
 
     case "broadcaster-gone":
       if (!isBroadcaster) {
         video.srcObject = null;
-        placeholder.hidden = false;
-        placeholder.textContent = "Transmissão encerrada.";
-        shareBtn.hidden = false;
+        idle.hidden = false;
         closeAllPeers();
         setStatus("A transmissão foi encerrada.");
       }
       break;
 
     case "viewer-joined":
-      if (isBroadcaster) {
-        makeOfferTo(msg.id);
-        updateViewers(+1);
-      }
+      if (isBroadcaster) makeOfferTo(msg.id);
       break;
 
     case "viewer-left":
@@ -149,15 +161,11 @@ function onMessage(msg) {
         const pc = pcs.get(msg.id);
         if (pc) pc.close();
         pcs.delete(msg.id);
-        updateViewers(-1);
       }
       break;
 
     case "signal":
       onSignal(msg.from, msg.data);
-      break;
-
-    default:
       break;
   }
 }
@@ -166,64 +174,111 @@ function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(roomId)}`);
   ws.onopen = () => setStatus(`Conectado à sala ${roomId}.`);
-  ws.onclose = () => setStatus("Desconectado. Recarregue a página para reconectar.");
+  ws.onclose = () => setStatus("Desconectado. Recarregue a página.");
   ws.onerror = () => setStatus("Erro de conexão.");
-  ws.onmessage = (ev) => {
-    try {
-      onMessage(JSON.parse(ev.data));
-    } catch {
-      /* ignora */
+  ws.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data)); } catch {} };
+}
+
+// ---------- Chat / Participantes ----------
+function addChat(name, text, mine) {
+  const el = document.createElement("div");
+  el.className = "chat-msg";
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = (mine ? "Você" : name) + ":";
+  el.appendChild(who);
+  el.appendChild(document.createTextNode(" " + text));
+  chatMsgs.appendChild(el);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+}
+
+function renderParticipants(list) {
+  partCountEl.textContent = `· ${list.length} participante${list.length === 1 ? "" : "s"}`;
+  partTabEl.textContent = list.length;
+  partList.innerHTML = "";
+  for (const p of list) {
+    const row = document.createElement("div");
+    row.className = "part";
+    const av = document.createElement("div");
+    av.className = "avatar";
+    av.textContent = (p.name || "?").charAt(0).toUpperCase();
+    const nm = document.createElement("div");
+    nm.className = "pname";
+    nm.textContent = p.name + (p.id === myId ? " (você)" : "");
+    row.appendChild(av);
+    row.appendChild(nm);
+    if (p.broadcasting) {
+      const live = document.createElement("span");
+      live.className = "live";
+      live.textContent = "AO VIVO";
+      row.appendChild(live);
     }
-  };
+    partList.appendChild(row);
+  }
 }
 
-async function startScreen() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-    setStatus("Seu navegador não suporta captura de tela (ou o site não está em HTTPS).");
-    return;
-  }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
-  } catch {
-    setStatus("Captura de tela cancelada.");
-    return;
-  }
-  beginBroadcast(stream);
-}
-
-async function startCamera() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    setStatus("Seu navegador não suporta câmera (ou o site não está em HTTPS).");
-    return;
-  }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  } catch {
-    setStatus("Acesso à câmera negado.");
-    return;
-  }
-  beginBroadcast(stream);
-}
-
+// ---------- Transmitir ----------
 function beginBroadcast(stream) {
   localStream = stream;
   isBroadcaster = true;
   video.srcObject = localStream;
-  video.muted = true; // evita eco da própria captura
-  placeholder.hidden = true;
-  shareBtn.hidden = true;
-  camBtn.hidden = true;
+  video.muted = true; // não ouvir o próprio áudio
+  idle.hidden = true;
+  shareBtn.hidden = camBtn.hidden = videoSrcBtn.hidden = true;
   stopBtn.hidden = false;
-  viewerCount = 0;
-  updateViewers(0);
+  micBtn.hidden = false;
+  updateMicBtn();
   setStatus("Você está transmitindo.");
-
   sendWs({ type: "broadcast-start" });
+  const vt = localStream.getVideoTracks()[0];
+  if (vt) vt.addEventListener("ended", stopBroadcast);
+}
 
-  // Para quando o usuário clica em "Parar de compartilhar" na barra do navegador.
-  localStream.getVideoTracks()[0].addEventListener("ended", stopBroadcast);
+async function startScreen() {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    setStatus("Navegador sem suporte à captura de tela (ou site sem HTTPS).");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: VIDEO_4K,
+      audio: { channelCount: 2, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    beginBroadcast(stream);
+  } catch { setStatus("Captura de tela cancelada."); }
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus("Navegador sem suporte à câmera (ou site sem HTTPS).");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+      audio: true,
+    });
+    beginBroadcast(stream);
+  } catch { setStatus("Acesso à câmera negado."); }
+}
+
+async function startVideoSource() {
+  const url = prompt("Cole a URL DIRETA de um vídeo (ex.: .mp4). Funciona melhor com links que permitem CORS:");
+  if (!url) return;
+  const v = document.createElement("video");
+  v.src = url;
+  v.crossOrigin = "anonymous";
+  v.muted = false;
+  try {
+    await v.play();
+  } catch {
+    setStatus("Não consegui reproduzir essa URL.");
+    return;
+  }
+  if (!v.captureStream) { setStatus("Seu navegador não suporta captureStream."); return; }
+  const stream = v.captureStream();
+  v.onended = () => stopBroadcast();
+  beginBroadcast(stream);
 }
 
 function stopBroadcast() {
@@ -234,24 +289,97 @@ function stopBroadcast() {
   isBroadcaster = false;
   localStream = null;
   video.srcObject = null;
-  placeholder.hidden = false;
-  placeholder.textContent = "Aguardando transmissão...";
-  shareBtn.hidden = false;
-  camBtn.hidden = false;
+  idle.hidden = false;
+  shareBtn.hidden = camBtn.hidden = videoSrcBtn.hidden = false;
   stopBtn.hidden = true;
-  viewersEl.textContent = "";
+  micBtn.hidden = true;
   setStatus("Transmissão parada.");
 }
 
-shareBtn.onclick = startScreen;
-camBtn.onclick = startCamera;
-stopBtn.onclick = stopBroadcast;
-fullBtn.onclick = () => {
-  if (video.requestFullscreen) video.requestFullscreen();
+// ---------- Controles ----------
+function updateMicBtn() {
+  const at = localStream?.getAudioTracks?.()[0];
+  const on = at ? at.enabled : false;
+  micBtn.textContent = on ? "🎙️" : "🔇";
+  micBtn.classList.toggle("off", !on);
+}
+
+micBtn.onclick = () => {
+  const at = localStream?.getAudioTracks?.()[0];
+  if (!at) return;
+  at.enabled = !at.enabled;
+  updateMicBtn();
 };
 
-if (!roomId) {
-  setStatus("Sala inválida.");
-} else {
-  connect();
-}
+deafenBtn.onclick = () => {
+  deaf = !deaf;
+  if (!isBroadcaster) video.muted = deaf;
+  deafenBtn.textContent = deaf ? "🔇" : "🔊";
+  deafenBtn.classList.toggle("off", deaf);
+};
+
+hideBtn.onclick = () => {
+  hidden = !hidden;
+  video.style.visibility = hidden ? "hidden" : "visible";
+  hideBtn.classList.toggle("off", hidden);
+};
+
+fullBtn.onclick = () => { if (video.requestFullscreen) video.requestFullscreen(); };
+
+leaveBtn.onclick = () => {
+  stopBroadcast();
+  try { ws?.close(); } catch {}
+  location.href = "/";
+};
+
+copyRoomBtn.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(location.href);
+    copyRoomBtn.textContent = "✅ Copiado!";
+    setTimeout(() => (copyRoomBtn.textContent = "🔗 Compartilhar sala"), 1500);
+  } catch { setStatus("Copie a URL da barra do navegador."); }
+};
+
+switchRoomBtn.onclick = () => {
+  const code = prompt("Código da sala (ou deixe vazio para criar uma nova):");
+  if (code === null) return;
+  const id = code.trim() || Math.random().toString(36).slice(2, 8);
+  location.href = `/sala/${encodeURIComponent(id)}`;
+};
+
+// ---------- Tabs ----------
+document.querySelectorAll(".tab").forEach((t) => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active");
+    const which = t.dataset.tab;
+    $("tab-chat").hidden = which !== "chat";
+    $("tab-part").hidden = which !== "part";
+  };
+});
+
+// ---------- Nome / Chat ----------
+nameSave.onclick = () => {
+  const n = nameInput.value.trim().slice(0, 24);
+  if (!n) return;
+  myName = n;
+  localStorage.setItem("tt_name", n);
+  sendWs({ type: "hello", name: n });
+};
+
+chatForm.onsubmit = (e) => {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text) return;
+  sendWs({ type: "chat", text });
+  chatInput.value = "";
+};
+
+// ---------- Botões de compartilhar ----------
+shareBtn.onclick = startScreen;
+camBtn.onclick = startCamera;
+videoSrcBtn.onclick = startVideoSource;
+
+// ---------- Start ----------
+if (!roomId) setStatus("Sala inválida.");
+else connect();

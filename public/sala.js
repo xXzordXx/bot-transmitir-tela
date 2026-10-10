@@ -84,6 +84,7 @@ function newPeer(peerId) {
       video.srcObject = e.streams[0];
       applyVolumeToVideo();
       idle.hidden = true;
+      video.play?.().catch(() => {});
     };
   }
   pc.onconnectionstatechange = () => {
@@ -243,8 +244,9 @@ function beginBroadcast(stream) {
   idle.hidden = true;
   shareBtn.hidden = camBtn.hidden = videoSrcBtn.hidden = true;
   stopBtn.hidden = false;
-  micBtn.hidden = false;
-  updateMicBtn();
+  const hasAudio = localStream.getAudioTracks().length > 0;
+  micBtn.hidden = !hasAudio; // só mostra o botão de áudio se houver faixa de áudio
+  if (hasAudio) updateMicBtn();
   setStatus("Você está transmitindo.");
   sendWs({ type: "broadcast-start" });
   const vt = localStream.getVideoTracks()[0];
@@ -259,9 +261,15 @@ async function startScreen() {
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: VIDEO_4K,
-      audio: { channelCount: 2, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: true,
+      systemAudio: "include", // dica p/ o Chrome capturar o som do sistema
     });
     beginBroadcast(stream);
+    if (stream.getAudioTracks().length === 0) {
+      setStatus("⚠️ Transmitindo SEM áudio. Para ter som: compartilhe a TELA INTEIRA ou uma ABA e marque 'Compartilhar áudio'.");
+    } else {
+      setStatus("Transmitindo com áudio. (Se duplicar a voz do Discord, compartilhe uma GUIA com 'áudio da guia'.)");
+    }
   } catch { setStatus("Captura de tela cancelada."); }
 }
 
@@ -422,6 +430,14 @@ chatForm.onsubmit = (e) => {
 shareBtn.onclick = startScreen;
 camBtn.onclick = startCamera;
 videoSrcBtn.onclick = startVideoSource;
+
+// Contorna o bloqueio de autoplay com som: na 1ª interação, libera o áudio.
+function primeAudio() {
+  if (!isBroadcaster) applyVolumeToVideo();
+  video.play?.().catch(() => {});
+}
+document.addEventListener("click", primeAudio);
+document.addEventListener("keydown", primeAudio);
 
 // ---------- Start ----------
 (async () => {
